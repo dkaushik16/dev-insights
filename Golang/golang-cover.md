@@ -26,25 +26,24 @@ A complete Go (Golang) tutorial written specifically for someone who already thi
 18. [Databases: database/sql, GORM, MongoDB](#18-databases)
 19. [Project Structure & Best Practices](#19-project-structure)
 20. [Interview Cheat Sheet](#20-interview-cheat-sheet)
-21. [What to Build Next](#21-what-to-build-next)
 
 ---
 
 ## 1. Mental Model: Go vs Node
 
-| Concept | Node/JS/Express | Go |
-|---|---|---|
-| Runtime | V8 engine, interpreted/JIT | Compiled to a single native binary |
-| Concurrency | Event loop, single-threaded, async/await | Goroutines (green threads), true parallelism across CPU cores |
-| Typing | Dynamic (or TS on top) | Static, compiled — errors caught before running |
-| Package manager | npm/yarn + package.json | `go mod` + go.mod |
-| Async pattern | Promises, async/await, callbacks | Goroutines + channels (CSP model) |
-| Error handling | try/catch, throw | Explicit `error` return values, no exceptions for normal flow |
-| Web framework | Express, Fastify | net/http (stdlib is already production-grade), or Gin/Chi/Fiber |
-| ORM | Mongoose, Prisma, Sequelize | GORM, sqlc, or raw database/sql |
-| Class-like OOP | `class`, prototypal inheritance | No classes — structs + methods + interfaces (composition over inheritance) |
-| Null | `null`/`undefined` | `nil` (zero value for pointers, slices, maps, interfaces, channels, funcs) |
-| Deployment | Needs Node runtime installed | Ship one static binary, no runtime needed |
+| Concept         | Node/JS/Express                          | Go                                                                         |
+| --------------- | ---------------------------------------- | -------------------------------------------------------------------------- |
+| Runtime         | V8 engine, interpreted/JIT               | Compiled to a single native binary                                         |
+| Concurrency     | Event loop, single-threaded, async/await | Goroutines (green threads), true parallelism across CPU cores              |
+| Typing          | Dynamic (or TS on top)                   | Static, compiled — errors caught before running                            |
+| Package manager | npm/yarn + package.json                  | `go mod` + go.mod                                                          |
+| Async pattern   | Promises, async/await, callbacks         | Goroutines + channels (CSP model)                                          |
+| Error handling  | try/catch, throw                         | Explicit `error` return values, no exceptions for normal flow              |
+| Web framework   | Express, Fastify                         | net/http (stdlib is already production-grade), or Gin/Chi/Fiber            |
+| ORM             | Mongoose, Prisma, Sequelize              | GORM, sqlc, or raw database/sql                                            |
+| Class-like OOP  | `class`, prototypal inheritance          | No classes — structs + methods + interfaces (composition over inheritance) |
+| Null            | `null`/`undefined`                       | `nil` (zero value for pointers, slices, maps, interfaces, channels, funcs) |
+| Deployment      | Needs Node runtime installed             | Ship one static binary, no runtime needed                                  |
 
 **Biggest mindset shift:** In Node you reach for `async/await` and `Promise.all`. In Go you reach for `go func(){}()` (goroutine) and `channels`. Both solve concurrency, but Go's model gives you real parallelism (multi-core) with much lower overhead — this is why Go dominates backend infra, CLIs, and microservices.
 
@@ -76,6 +75,7 @@ go vet ./...
 ```
 
 Key files:
+
 - `go.mod` = `package.json` (module name, Go version, dependencies)
 - `go.sum` = `package-lock.json` (checksums for reproducible builds)
 
@@ -113,6 +113,7 @@ func main() {
 ```
 
 Key differences from JS:
+
 - `:=` is short variable declaration — only usable inside functions, infers type. Once a variable's type is set, it's fixed forever (no reassigning a string to a number).
 - Every declared variable **must be used**, or the compiler errors. No unused imports either. This feels strict at first, keeps codebases clean forever.
 - No `var`/`let` distinction — Go has block scoping like `let` by default.
@@ -606,6 +607,7 @@ func main() {
 ```
 
 Capitalization = visibility (this trips up every JS dev at first):
+
 - `func Foo()` — Exported (public), like `export` in JS
 - `func foo()` — unexported (private to the package), like not exporting it
 
@@ -687,6 +689,48 @@ func main() {
     }
 }
 ```
+
+## Worker Pool Pattern
+
+This code demonstrates a classic **Worker Pool** pattern in Go, which enables
+controlled concurrent execution by distributing work across a fixed number of
+background goroutines.
+
+- **Job & output queues** — `jobs` acts as a thread-safe task buffer where
+  `main` pushes work, while `results` collects processed outputs asynchronously.
+- **Type-safe directional channels** — using `<-chan` (receive-only) for jobs
+  and `chan<-` (send-only) for results ensures compile-time safety inside the
+  `worker` function.
+- **Controlled parallelism** — rather than launching thousands of unmanaged
+  goroutines, a fixed set of workers processes tasks concurrently without
+  overloading system resources (CPU, memory, database handles).
+
+### Core logic & flow
+
+#### 1. The setup — fixed workers, infinite queue
+
+You launch a fixed number of goroutines (3 workers) once at the start.
+Instead of dying after finishing one job, each worker runs an infinite loop
+(`for j := range jobs`) that puts it to sleep when there's no work, and wakes
+it up the instant a job enters the channel.
+
+#### 2. The execution — self-service load balancing
+
+The `jobs` channel acts as a shared task queue. Go's runtime ensures that
+when a job enters the channel, only one available worker gets to grab it.
+Once a worker finishes job #1, it immediately loops back to grab job #2.
+
+You don't have to manually assign "job 1 goes to worker A" — the workers
+pull jobs themselves as fast as they can handle them.
+
+#### 3. The lifecycle — clean shutdown & collection
+
+- **Closing the queue** — `close(jobs)` sends an "end of file" signal down
+  the channel. Workers finish whatever items are left in the buffer, then
+  exit their `range` loops cleanly.
+- **Main's role** — while the workers are busy grinding through the queue
+  and pushing answers into `results`, `main` acts as the collector, reading
+  and printing each result as it finishes.
 
 ### select — like Promise.race for channels
 
@@ -1075,6 +1119,7 @@ Layered architecture maps directly to what you already do in Express:
 ## 20. Interview Cheat Sheet
 
 **Concurrency**
+
 - Explain goroutines vs OS threads: goroutines are cheap (~2KB stack, grows dynamically), multiplexed onto OS threads by the Go scheduler (M:N scheduling).
 - Explain unbuffered vs buffered channels: unbuffered blocks sender until a receiver is ready (synchronous handoff); buffered allows sending up to capacity without blocking.
 - Know the worker pool pattern (section 12) cold — it's the most common live-coding ask.
@@ -1082,6 +1127,7 @@ Layered architecture maps directly to what you already do in Express:
 - Be able to explain a data race and how `go run -race` catches it.
 
 **Language design**
+
 - Why no exceptions? Errors as values force explicit handling at every call site; nothing fails silently.
 - Why no inheritance? Composition (embedding) + interfaces give flexibility without deep, fragile hierarchies.
 - Explain the empty interface `interface{}`/`any` and its tradeoffs (loses type safety, like `any` in TS).
@@ -1089,6 +1135,7 @@ Layered architecture maps directly to what you already do in Express:
 - Explain slices: they're a header (pointer, length, capacity) over an underlying array — this explains the "slices share memory" gotcha.
 
 **Practical**
+
 - Explain how you'd structure a Go REST API (handler → service → repository).
 - Explain `context.Context` and its role in cancellation/timeouts across a call chain.
 - Explain how Go compiles to a static binary and why that simplifies deployment vs a Node app needing a runtime.
@@ -1096,9 +1143,9 @@ Layered architecture maps directly to what you already do in Express:
 - Be ready to write a basic goroutine + channel example live — this comes up constantly.
 
 **Common "gotcha" questions**
+
 - What happens if you range over a slice and mutate it inside the loop? (Behavior can be surprising — ranging captures values, not live references in older Go; Go 1.22+ changed loop variable semantics per-iteration.)
 - Why does appending to a slice sometimes not affect the original? (Depends on whether capacity was exceeded, triggering a new underlying array.)
 - What's the zero value of a slice/map/pointer, and what happens if you read/write to a nil map vs a nil slice? (Reading a nil map is safe and returns zero value; **writing to a nil map panics**. Reading a nil slice is safe; appending to a nil slice works fine, unlike maps.)
 
 ---
-
